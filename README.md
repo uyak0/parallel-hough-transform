@@ -4,7 +4,8 @@ Parallelization of Hough Transformation
 # Compiling
 ### On linux:
 ```bash
-cd parallel-hough-transform/build-dir/
+cd parallel-hough-transform/
+mkdir build-dir
 cmake ..
 make
 ```

@@ -22,7 +22,6 @@ std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double 
     cv::Mat houghSpace = cv::Mat::zeros(rhoSize, thetaSize, CV_32SC1);
 
     // Perform Hough Transform
-	omp_set_num_threads(4);
 
     #pragma	omp parallel num_threads(4)
     {
@@ -68,7 +67,7 @@ int main(int argc, char** argv)
     const char* filename = argc >= 2 ? argv[1] : default_file;
 
     // Loads an image
-    Mat src = imread("./sudoku.png", IMREAD_GRAYSCALE);
+    Mat src = imread(filename, IMREAD_GRAYSCALE);
 
     // Check if image is loaded fine
     if (src.empty()) {
