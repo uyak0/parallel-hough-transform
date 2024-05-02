@@ -22,8 +22,11 @@ std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double 
     cv::Mat houghSpace = cv::Mat::zeros(rhoSize, thetaSize, CV_32SC1);
 
     // Perform Hough Transform
-    cout << omp_get_num_threads();
-        #pragma	omp parallel for 
+	omp_set_num_threads(4);
+
+    #pragma	omp parallel num_threads(4)
+    {
+        #pragma omp for
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 // Only consider edge pixels
@@ -38,7 +41,8 @@ std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double 
                 }
             }
         }
- 
+    }
+    
 
 
     // Extract lines from Hough space
