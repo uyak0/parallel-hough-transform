@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/uyako/projects/parallel-hough-transform/parallel-hough-transform/build-dir",
+  "command": "/nix/store/ln6zld1ia7rxddmxgbpfhrmb42rbxdw8-gcc-wrapper-13.2.0/bin/g++  -isystem /nix/store/c868lmnkv4whnan5w79s348iyygr70kq-opencv-4.9.0/include/opencv4  -o CMakeFiles/main.dir/parallel-hough-transform.cpp.o -c /home/uyako/projects/parallel-hough-transform/parallel-hough-transform/parallel-hough-transform.cpp",
+  "file": "/home/uyako/projects/parallel-hough-transform/parallel-hough-transform/parallel-hough-transform.cpp",
+  "output": "CMakeFiles/main.dir/parallel-hough-transform.cpp.o"
+}
+]
