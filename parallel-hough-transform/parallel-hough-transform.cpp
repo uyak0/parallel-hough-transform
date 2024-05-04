@@ -8,23 +8,24 @@
 using namespace cv;            // Uses the cv namespace from OpenCV to avoid prefixing cv::.
 using namespace std;           // Uses the std namespace to avoid prefixing std::.
 
-std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double thetaRes, int threshold) {
-    // Function to perform Hough Transform to detect lines.
+vector<Vec2f> parallel_hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
 
     int width = img.cols;  // Gets the number of columns in the image (image width).
     int height = img.rows; // Gets the number of rows in the image (image height).
 
     double maxDist = std::sqrt(width * width + height * height); // Computes the maximum distance from the origin to the image corner.
 
-    int rhoSize = static_cast<int>(std::ceil(2 * maxDist / rhoRes)); // Calculate number of bins for rho.
-    int thetaSize = static_cast<int>(std::ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
-    cv::Mat houghSpace = cv::Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
+    int rhoSize = static_cast<int>(ceil(2 * maxDist / rhoRes)); // Calculate number of bins for rho.
+    int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
+    Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
 
-    omp_set_num_threads(4); // Sets the number of threads for OpenMP to use to 4.
-
-#pragma omp parallel num_threads(4) // Parallel region starts with 4 threads.
+    #pragma omp parallel num_threads(4) // Parallel region starts with 4 threads.
     {
-#pragma omp for // Indicates that the loop should be divided among the threads.
+        #pragma omp single
+        {
+            cout << "Number of threads: " << omp_get_num_threads() << endl; // Print the number of threads.
+        }
+        #pragma omp for // Indicates that the loop should be divided among the threads.
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 if (img.at<uchar>(y, x) > 0) { // Process only edge pixels (>0).
@@ -32,7 +33,7 @@ std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double 
                         double theta = thetaIdx * thetaRes;
                         double rho = x * std::cos(theta) + y * std::sin(theta);
                         int rhoIdx = static_cast<int>(std::round((rho + maxDist) / rhoRes));
-#pragma omp atomic
+                        #pragma omp atomic
                         houghSpace.at<int>(rhoIdx, thetaIdx)++; // Vote in Hough space.
                     }
                 }
@@ -40,18 +41,52 @@ std::vector<cv::Vec2f> houghTransform(const cv::Mat& img, double rhoRes, double 
         }
     }
 
-    std::vector<cv::Vec2f> lines; // Vector to store lines found.
     for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
         for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
             if (houghSpace.at<int>(rhoIdx, thetaIdx) > threshold) { // Check if a cell in Hough space exceeds the threshold.
-                lines.push_back(cv::Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes)); // Store the line parameters.
+                lines->push_back(Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes)); // Store the line parameters.
             }
         }
     }
 
-    return lines; // Return the detected lines.
+    return *lines; // Return the detected lines.
 }
 
+vector<Vec2f> hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
+
+    int width = img.cols;  // Gets the number of columns in the image (image width).
+    int height = img.rows; // Gets the number of rows in the image (image height).
+
+    double maxDist = std::sqrt(width * width + height * height); // Computes the maximum distance from the origin to the image corner.
+
+    int rhoSize = static_cast<int>(ceil(2 * maxDist / rhoRes)); // Calculate number of bins for rho.
+    int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
+    Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (img.at<uchar>(y, x) > 0) { // Process only edge pixels (>0).
+                for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
+                    double theta = thetaIdx * thetaRes;
+                    double rho = x * std::cos(theta) + y * std::sin(theta);
+                    int rhoIdx = static_cast<int>(std::round((rho + maxDist) / rhoRes));
+                    #pragma omp atomic
+                    houghSpace.at<int>(rhoIdx, thetaIdx)++; // Vote in Hough space.
+                }
+            }
+        }
+    }
+
+    for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
+        for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
+            if (houghSpace.at<int>(rhoIdx, thetaIdx) > threshold) { // Check if a cell in Hough space exceeds the threshold.
+                lines->push_back(Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes)); // Store the line parameters.
+            }
+        }
+    }
+
+    return *lines; // Return the detected lines.
+}
 
 int main(int argc, char** argv)
 {
@@ -60,7 +95,7 @@ int main(int argc, char** argv)
     const char* default_file = "sudoku.png"; // Default file name.
     const char* filename = argc >= 2 ? argv[1] : default_file; // Determine filename from command line arguments.
 
-    Mat src = imread("./sudoku.png", IMREAD_GRAYSCALE); // Load image in grayscale.
+    Mat src = imread(filename , IMREAD_GRAYSCALE); // Load image in grayscale.
 
     if (src.empty()) { // Check if the image has been loaded successfully.
         printf(" Error opening image\n");
@@ -77,29 +112,14 @@ int main(int argc, char** argv)
     // Standard Hough Line Transform
     vector<Vec2f> lines; // will hold the results of the detection
     auto start = chrono::high_resolution_clock::now();
-    lines = houghTransform(dst, 1, CV_PI / 180, 150); // runs the actual detection
-    //HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
+
+    // parallel_hough(dst, 1, CV_PI / 180, 150, &lines);  // parallel Hough Line Transform
+    hough(dst, 1, CV_PI / 180, 150, &lines);    // Hough Line Transform
+    // HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
+    
     auto end = chrono::high_resolution_clock::now();
 
     cout << "Standard Hough Line Transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
-
-    //![hough_lines]
-    //![draw_lines]
-    // Draw the lines
-
-    ////![hough_lines_p]
-    //// Probabilistic Line Transform
-    //vector<Vec4i> linesP; // will hold the results of the detection
-    //HoughLinesP(dst, linesP, 1, CV_PI / 180, 50, 50, 10); // runs the actual detection
-    ////![hough_lines_p]
-    ////![draw_lines_p]
-    //// Draw the lines
-    //for (size_t i = 0; i < linesP.size(); i++)
-    //{
-    //    Vec4i l = linesP[i];
-    //    line(cdstP, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0, 0, 255), 3, LINE_AA);
-    //}
-    ////![draw_lines_p]
 
     //![imshow]
     // Show results
@@ -117,8 +137,7 @@ int main(int argc, char** argv)
 
     imshow("Source", src); // Display original image.
     imshow("Detected Lines (in red) - Standard Hough Line Transform", cdst); // Display lines.
+    imwrite("standard_hough.jpg", cdst); // Save the image with detected lines.
 
-    waitKey(); // Wait for a key press before exiting.
     return 0; // Return successful exit code.
-
 }
