@@ -19,7 +19,7 @@ vector<Vec2f> parallel_hough(const Mat& img, double rhoRes, double thetaRes, int
     int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
     Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
 
-    #pragma omp parallel num_threads(4) // Parallel region starts with 4 threads.
+    #pragma omp parallel num_threads(8) // Parallel region starts with 4 threads.
     {
         #pragma omp single
         {
@@ -91,6 +91,7 @@ vector<Vec2f> hough(const Mat& img, double rhoRes, double thetaRes, int threshol
 int main(int argc, char** argv)
 {
     Mat dst, cdst, cdstP; // Declare matrices for the destination image and color-converted images.
+    const int threshold = 100;
 
     const char* default_file = "sudoku.png"; // Default file name.
     const char* filename = argc >= 2 ? argv[1] : default_file; // Determine filename from command line arguments.
@@ -113,8 +114,8 @@ int main(int argc, char** argv)
     vector<Vec2f> lines; // will hold the results of the detection
     auto start = chrono::high_resolution_clock::now();
 
-    // parallel_hough(dst, 1, CV_PI / 180, 150, &lines);  // parallel Hough Line Transform
-    hough(dst, 1, CV_PI / 180, 150, &lines);    // Hough Line Transform
+    parallel_hough(dst, 1, CV_PI / 180, threshold, &lines);  // parallel Hough Line Transform
+    // hough(dst, 1, CV_PI / 180, 150, &lines);    // Hough Line Transform
     // HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
     
     auto end = chrono::high_resolution_clock::now();
@@ -137,7 +138,7 @@ int main(int argc, char** argv)
 
     imshow("Source", src); // Display original image.
     imshow("Detected Lines (in red) - Standard Hough Line Transform", cdst); // Display lines.
-    imwrite("standard_hough.jpg", cdst); // Save the image with detected lines.
+    imwrite("standard_hough with threshold " + to_string(threshold) + ".jpg", cdst); // Save the image with detected lines.
 
     return 0; // Return successful exit code.
 }
