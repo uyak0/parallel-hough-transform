@@ -4,11 +4,55 @@
 #include <iostream>             // Includes standard I/O stream objects.
 #include <chrono>               // Includes time-related functions and classes for measuring time.
 #include <omp.h>                // Includes functions from OpenMP for parallel programming.
+#include <mpi.h>
 
 using namespace cv;            // Uses the cv namespace from OpenCV to avoid prefixing cv::.
 using namespace std;           // Uses the std namespace to avoid prefixing std::.
 
-vector<Vec2f> parallel_hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
+vector<Vec2f> mpi_hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
+    int width = img.cols;
+    int height = img.rows;
+
+    double maxDist = std::sqrt(width * width + height * height);
+    int rhoSize = static_cast<int>(ceil(2 * maxDist / rhoRes));
+    int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));
+    Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1);
+
+    int numProcs, procId;
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &procId);
+
+    int chunkSize = (height * width) / numProcs;
+    int startRow = procId * chunkSize;
+    int endRow = (procId == numProcs - 1)? height : startRow + chunkSize;
+
+    for (int y = startRow; y < endRow; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (img.at<uchar>(y, x) > 0) {
+                for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
+                    double theta = thetaIdx * thetaRes;
+                    double rho = x * std::cos(theta) + y * std::sin(theta);
+                    int rhoIdx = static_cast<int>(std::round((rho + maxDist) / rhoRes));
+                    int vote = 1;
+                    MPI_Allreduce(&vote, &houghSpace.at<int>(rhoIdx, thetaIdx), 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                }
+            }
+        }
+    }
+
+
+    for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
+        for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
+            if (houghSpace.at<int>(rhoIdx, thetaIdx) > threshold) {
+                lines->push_back(Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes));
+            }
+        }
+    }
+
+    return *lines;
+}
+
+vector<Vec2f> omp_hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
 
     int width = img.cols;  // Gets the number of columns in the image (image width).
     int height = img.rows; // Gets the number of rows in the image (image height).
@@ -19,7 +63,7 @@ vector<Vec2f> parallel_hough(const Mat& img, double rhoRes, double thetaRes, int
     int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
     Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
 
-    #pragma omp parallel num_threads(8) // Parallel region starts with 4 threads.
+    #pragma omp parallel num_threads(4) // Parallel region starts with 4 threads.
     {
         #pragma omp single
         {
@@ -91,10 +135,12 @@ vector<Vec2f> hough(const Mat& img, double rhoRes, double thetaRes, int threshol
 int main(int argc, char** argv)
 {
     Mat dst, cdst, cdstP; // Declare matrices for the destination image and color-converted images.
-    const int threshold = 100;
+    const int threshold = 75;
 
     const char* default_file = "sudoku.png"; // Default file name.
     const char* filename = argc >= 2 ? argv[1] : default_file; // Determine filename from command line arguments.
+
+    MPI_Init(&argc, &argv);
 
     Mat src = imread(filename , IMREAD_GRAYSCALE); // Load image in grayscale.
 
@@ -112,15 +158,23 @@ int main(int argc, char** argv)
     //![hough_lines]
     // Standard Hough Line Transform
     vector<Vec2f> lines; // will hold the results of the detection
-    auto start = chrono::high_resolution_clock::now();
 
-    parallel_hough(dst, 1, CV_PI / 180, threshold, &lines);  // parallel Hough Line Transform
-    // hough(dst, 1, CV_PI / 180, 150, &lines);    // Hough Line Transform
-    // HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
-    
-    auto end = chrono::high_resolution_clock::now();
-
-    cout << "Standard Hough Line Transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
+    // Best threshold for hough-test.jpg is 120
+    // Best threshold for sudoku.png is 170 
+    // This for loop is for testing
+    // for (int i = 0; i < 10; i++) {
+    //     auto start = chrono::high_resolution_clock::now();
+    //     mpi_hough(dst, 1, CV_PI / 180, threshold, &lines, 4);  // MPI parallel Hough Line Transform
+    //     // omp_hough(dst, 1, CV_PI / 180, threshold, &lines);  // OpenMP parallel Hough Line Transform
+    //     // hough(dst, 1, CV_PI / 180, threshold, &lines);    // Hough Line Transform
+    //     // HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
+    //     auto end = chrono::high_resolution_clock::now();
+    //     cout << "Time taken for hough transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
+    // }
+        auto start = chrono::high_resolution_clock::now();
+        mpi_hough(dst, 1, CV_PI / 180, threshold, &lines);
+        auto end = chrono::high_resolution_clock::now();
+        cout << "Time taken for hough transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
 
     //![imshow]
     // Show results
@@ -140,5 +194,6 @@ int main(int argc, char** argv)
     imshow("Detected Lines (in red) - Standard Hough Line Transform", cdst); // Display lines.
     imwrite("standard_hough with threshold " + to_string(threshold) + ".jpg", cdst); // Save the image with detected lines.
 
+    MPI_Finalize();
     return 0; // Return successful exit code.
 }
