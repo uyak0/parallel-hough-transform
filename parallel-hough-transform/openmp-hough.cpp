@@ -18,9 +18,14 @@ vector<Vec2f> omp_hough(const Mat& img, double rhoRes, double thetaRes, int thre
     int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));   // Calculate number of bins for theta.
     Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Create a 2D array to accumulate votes in Hough space.
 
-    #pragma omp parallel num_threads(8) 
+    #pragma omp parallel num_threads(8)
     {
-        Mat localHoughSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1); // Local copy of Hough space for each thread.
+        Mat localHoughSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1);
+        
+        #pragma omp single 
+        {
+            printf("Number of threads: %d\n", omp_get_num_threads());
+        }
 
         #pragma omp for schedule(dynamic, 10) collapse(2)
         for (int y = 0; y < height; ++y) {
@@ -37,12 +42,12 @@ vector<Vec2f> omp_hough(const Mat& img, double rhoRes, double thetaRes, int thre
             }
         }
 
-        #pragma omp critical
+        #pragma omp critical 
         {
-            houghSpace += localHoughSpace; // Combine local Hough spaces into global Hough space.
+            houghSpace += localHoughSpace;
         }
     }
-    
+
     for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
         for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
             if (houghSpace.at<int>(rhoIdx, thetaIdx) > threshold) { // Check if a cell in Hough space exceeds the threshold.
@@ -51,6 +56,6 @@ vector<Vec2f> omp_hough(const Mat& img, double rhoRes, double thetaRes, int thre
         }
     }
 
-    return *lines; // Return the detected lines.
+    return *lines; 
 }
 

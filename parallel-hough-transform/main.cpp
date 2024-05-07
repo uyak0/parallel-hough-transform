@@ -16,12 +16,13 @@ using namespace std;
 int main(int argc, char** argv)
 {
     Mat dst, cdst; // Declare matrices for the destination image and color-converted images.
-    int threshold = 40;
+    
+    // Best threshold for hough-test.jpg is 120
+    // Best threshold for sudoku.png is 170 
+    int threshold = 120;
 
     const char* default_file = "sudoku.png"; // Default file name.
     const char* filename = argc >= 2 ? argv[1] : default_file; // Determine filename from command line arguments.
-
-    MPI_Init(&argc, &argv);
 
     Mat src = imread(filename , IMREAD_GRAYSCALE); // Load image in grayscale.
 
@@ -38,71 +39,76 @@ int main(int argc, char** argv)
     // Standard Hough Line Transform
     vector<Vec2f> lines; // will hold the results of the detection
 
-    // Best threshold for hough-test.jpg is 120
-    // Best threshold for sudoku.png is 170 
     // This for loop is for testing
-    // for (int i = 0; i < 10; i++) {
-    //     auto start = chrono::high_resolution_clock::now();
-    //     omp_hough(dst, 1, CV_PI / 180, threshold, &lines);  // OpenMP parallel Hough Line Transform
-    //     // hough(dst, 1, CV_PI / 180, threshold, &lines);    // Hough Line Transform
-    //     // HoughLines(dst, lines, 1, CV_PI / 180, 150); // runs the actual detection
-    //     auto end = chrono::high_resolution_clock::now();
-    //     cout << "Time taken for hough transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
-    // }
+    // MPI_Init(&argc, &argv);
+    for (int i = 0; i < 10; i++) {
+        // // Measures OpenMP
+        auto start = chrono::high_resolution_clock::now();
+        omp_hough(dst, 1, CV_PI / 180, threshold, &lines);  // OpenMP parallel Hough Line Transform
+        auto end = chrono::high_resolution_clock::now();
+        cout << "Time taken for openMP: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
 
-    // auto start = chrono::high_resolution_clock::now();
-    // mpi_hough(dst, 1, CV_PI / 180, threshold, &lines);
-    // auto end = chrono::high_resolution_clock::now();
-    // cout << "Time taken for hough transform: " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
+        // Measures Serial
+        // auto start2 = chrono::high_resolution_clock::now();
+        // hough(dst, 1, CV_PI / 180, threshold, &lines);    // Hough Line Transform
+        // auto end2 = chrono::high_resolution_clock::now();
+        // cout << "Time taken for Serial: " << chrono::duration_cast<chrono::milliseconds>(end2 - start2).count() << "ms" << endl;
+
+        // Measures MPI
+        // auto start3 = chrono::high_resolution_clock::now();
+        // lines = parallel_hough_mpi(dst, 1, CV_PI / 180, threshold);
+        // auto end3 = chrono::high_resolution_clock::now();
+        // cout << "Time taken for MPI: " << chrono::duration_cast<chrono::milliseconds>(end3 - start3).count() << "ms" << endl;
+    }
+    // MPI_Finalize();
 
     // This exists for looping over different thresholds
-    for (; threshold < 200; threshold += 10) {
-        Mat dstP = dst.clone(); // Clone image so the original is kept
-        Mat cdstP = cdst.clone(); // Clone image so the original is kept
-        
-        auto start = chrono::high_resolution_clock::now();
-        // omp_hough(dstP, 1, CV_PI / 180, threshold, &lines);  // OpenMP parallel Hough Line Transform
-        // HoughLines(dstP, lines, 1, CV_PI / 180, threshold); // runs the actual detection
-        hough(dstP, 1, CV_PI / 180, threshold, &lines);    // Hough Line Transform
-        auto end = chrono::high_resolution_clock::now();
-
-        cout << "Time taken for hough transform with threshold " << threshold << ": " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
-
-        for (size_t i = 0; i < lines.size(); i++) {
-            float rho = lines[i][0], theta = lines[i][1];
-            Point pt1, pt2;
-            double a = cos(theta), b = sin(theta);
-            double x0 = a * rho, y0 = b * rho;
-            pt1.x = cvRound(x0 + 1000 * (-b));
-            pt1.y = cvRound(y0 + 1000 * (a));
-            pt2.x = cvRound(x0 - 1000 * (-b));
-            pt2.y = cvRound(y0 - 1000 * (a));
-            line(cdstP, pt1, pt2, Scalar(0, 0, 255), 3, LINE_AA); // Draw detected lines.
-        }
-
-        imwrite("standard_hough with threshold " + to_string(threshold) + ".jpg", cdstP); // Save the image with detected lines.
-        lines.clear();
-    }
+    // for (; threshold < 200; threshold += 10) {
+    //     Mat dstP = dst.clone(); // Clone image so the original is kept
+    //     Mat cdstP = cdst.clone(); // Clone image so the original is kept
+    //     
+    //     auto start = chrono::high_resolution_clock::now();
+    //     omp_hough(dstP, 1, CV_PI / 180, threshold, &lines);  // OpenMP parallel Hough Line Transform
+    //     // HoughLines(dstP, lines, 1, CV_PI / 180, threshold); // runs the actual detection
+    //     // hough(dstP, 1, CV_PI / 180, threshold, &lines);    // Hough Line Transform
+    //     auto end = chrono::high_resolution_clock::now();
+    //
+    //     cout << "Time taken for hough transform with threshold " << threshold << ": " << chrono::duration_cast<chrono::milliseconds>(end - start).count() << "ms" << endl;
+    //
+    //     for (size_t i = 0; i < lines.size(); i++) {
+    //         float rho = lines[i][0], theta = lines[i][1];
+    //         Point pt1, pt2;
+    //         double a = cos(theta), b = sin(theta);
+    //         double x0 = a * rho, y0 = b * rho;
+    //         pt1.x = cvRound(x0 + 1000 * (-b));
+    //         pt1.y = cvRound(y0 + 1000 * (a));
+    //         pt2.x = cvRound(x0 - 1000 * (-b));
+    //         pt2.y = cvRound(y0 - 1000 * (a));
+    //         line(cdstP, pt1, pt2, Scalar(0, 0, 255), 3, LINE_AA); // Draw detected lines.
+    //     }
+    //
+    //     imwrite("images/hough-with-threshold-" + to_string(threshold) + ".jpg", cdstP); // Save the image with detected lines.
+    //     lines.clear();
+    // }
 
 
     //![imshow]
     // Show results
-    // for (size_t i = 0; i < lines.size(); i++) {
-    //     float rho = lines[i][0], theta = lines[i][1];
-    //     Point pt1, pt2;
-    //     double a = cos(theta), b = sin(theta);
-    //     double x0 = a * rho, y0 = b * rho;
-    //     pt1.x = cvRound(x0 + 1000 * (-b));
-    //     pt1.y = cvRound(y0 + 1000 * (a));
-    //     pt2.x = cvRound(x0 - 1000 * (-b));
-    //     pt2.y = cvRound(y0 - 1000 * (a));
-    //     line(cdst, pt1, pt2, Scalar(0, 0, 255), 3, LINE_AA); // Draw detected lines.
-    // }
+    for (size_t i = 0; i < lines.size(); i++) {
+        float rho = lines[i][0], theta = lines[i][1];
+        Point pt1, pt2;
+        double a = cos(theta), b = sin(theta);
+        double x0 = a * rho, y0 = b * rho;
+        pt1.x = cvRound(x0 + 1000 * (-b));
+        pt1.y = cvRound(y0 + 1000 * (a));
+        pt2.x = cvRound(x0 - 1000 * (-b));
+        pt2.y = cvRound(y0 - 1000 * (a));
+        line(cdst, pt1, pt2, Scalar(0, 0, 255), 3, LINE_AA); // Draw detected lines.
+    }
 
     // imshow("Source", src); // Display original image.
     // imshow("Detected Lines (in red) - Standard Hough Line Transform", cdst); // Display lines.
-    // imwrite("standard_hough with threshold " + to_string(threshold) + ".jpg", cdst); // Save the image with detected lines.
+    imwrite("images/hough-with-threshold-" + to_string(threshold) + ".jpg", cdst); // Save the image with detected lines.
 
-    MPI_Finalize();
     return 0; 
 }

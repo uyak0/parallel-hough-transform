@@ -9,23 +9,7 @@
 using namespace cv;
 using namespace std;
 
-vector<Vec2f> mpi_hough(const Mat& img, double rhoRes, double thetaRes, int threshold, vector<Vec2f>* lines = nullptr) {
-    int width = img.cols;
-    int height = img.rows;
-
-    double maxDist = std::sqrt(width * width + height * height);
-    int rhoSize = static_cast<int>(ceil(2 * maxDist / rhoRes));
-    int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));
-    Mat houghSpace = Mat::zeros(rhoSize, thetaSize, CV_32SC1);
-
-    int numProcs, procId;
-    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
-    MPI_Comm_rank(MPI_COMM_WORLD, &procId);
-
-    int chunkSize = (height * width) / numProcs;
-    int startRow = procId * chunkSize;
-    int endRow = (procId == numProcs - 1)? height : startRow + chunkSize;
-
+void accumulateVotes(const cv::Mat& img, int startRow, int endRow, int width, int rhoSize, int thetaSize, double maxDist, double rhoRes, double thetaRes, std::vector<int>& houghSpace) {
     for (int y = startRow; y < endRow; ++y) {
         for (int x = 0; x < width; ++x) {
             if (img.at<uchar>(y, x) > 0) {
@@ -33,21 +17,46 @@ vector<Vec2f> mpi_hough(const Mat& img, double rhoRes, double thetaRes, int thre
                     double theta = thetaIdx * thetaRes;
                     double rho = x * std::cos(theta) + y * std::sin(theta);
                     int rhoIdx = static_cast<int>(std::round((rho + maxDist) / rhoRes));
-                    int vote = 1;
-                    MPI_Allreduce(&vote, &houghSpace.at<int>(rhoIdx, thetaIdx), 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+                    houghSpace[rhoIdx * thetaSize + thetaIdx]++;
+                }
+            }
+        }
+    }
+}
+
+std::vector<cv::Vec2f> parallel_hough_mpi(const cv::Mat& img, double rhoRes, double thetaRes, int threshold) {
+    int width = img.cols;
+    int height = img.rows;
+    double maxDist = std::sqrt(width * width + height * height);
+    int rhoSize = static_cast<int>(ceil(2 * maxDist / rhoRes));
+    int thetaSize = static_cast<int>(ceil(CV_PI / thetaRes));
+
+    int numProcs, procId;
+    MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &procId);
+
+    int chunkSize = height / numProcs;
+    int startRow = procId * chunkSize;
+    int endRow = (procId == numProcs - 1)? height : startRow + chunkSize;
+
+    std::vector<int> houghSpace(rhoSize * thetaSize);
+
+    accumulateVotes(img, startRow, endRow, width, rhoSize, thetaSize, maxDist, rhoRes, thetaRes, houghSpace);
+
+    std::vector<int> globalHoughSpace(rhoSize * thetaSize);
+    MPI_Allreduce(houghSpace.data(), globalHoughSpace.data(), rhoSize * thetaSize, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+    std::vector<cv::Vec2f> lines;
+    if (procId == 0) {
+        for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
+            for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
+                if (globalHoughSpace[rhoIdx * thetaSize + thetaIdx] > threshold) {
+                    lines.push_back(cv::Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes));
                 }
             }
         }
     }
 
 
-    for (int rhoIdx = 0; rhoIdx < rhoSize; ++rhoIdx) {
-        for (int thetaIdx = 0; thetaIdx < thetaSize; ++thetaIdx) {
-            if (houghSpace.at<int>(rhoIdx, thetaIdx) > threshold) {
-                lines->push_back(Vec2f((rhoIdx * rhoRes) - maxDist, thetaIdx * thetaRes));
-            }
-        }
-    }
-
-    return *lines;
+    return lines;
 }
